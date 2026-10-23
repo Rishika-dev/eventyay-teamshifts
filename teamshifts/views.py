@@ -1970,22 +1970,24 @@ class ShiftUpdateView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, Temp
             messages.error(request, _("No locations defined yet, add locations first."))
             return redirect("plugins:teamshifts:location_create", organizer=request.event.organizer.slug, event=request.event.slug)
 
-        form = ShiftForm(self.request.POST, event=self.request.event, instance=self.shift)
-        formset = ShiftRoleFormSet(self.request.POST, prefix="roles", instance=self.shift, form_kwargs={"event": self.request.event})
+        # Lock the shift like the assignment and claim views, so no volunteer is assigned between the capacity check and the save.
+        with scope(event=request.event), transaction.atomic():
+            self.shift = Shift.objects.select_for_update().get(pk=self.shift.pk, event=request.event)
+            form = ShiftForm(self.request.POST, event=self.request.event, instance=self.shift)
+            formset = ShiftRoleFormSet(self.request.POST, prefix="roles", instance=self.shift, form_kwargs={"event": self.request.event})
 
-        form_valid = form.is_valid()
-        formset_valid = formset.is_valid()
+            form_valid = form.is_valid()
+            formset_valid = formset.is_valid()
 
-        if form_valid and formset_valid:
-            with scope(event=request.event), transaction.atomic():
+            if form_valid and formset_valid:
                 form.save()
                 formset.save()
                 messages.success(request, _("Shift updated successfully."))
                 return redirect("plugins:teamshifts:shift_edit", organizer=request.event.organizer.slug, event=request.event.slug, pk=self.shift.pk)
-        else:
-            messages.error(request, _("We could not save your changes. See below for details."))
-            ctx = self.get_context_data(form=form, formset=formset, has_locations=has_locations)
-            return self.render_to_response(ctx)
+
+        messages.error(request, _("We could not save your changes. See below for details."))
+        ctx = self.get_context_data(form=form, formset=formset, has_locations=has_locations)
+        return self.render_to_response(ctx)
 
 
 class ShiftDeleteView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, DeleteView):
