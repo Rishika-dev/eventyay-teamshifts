@@ -54,6 +54,7 @@ from .forms import (
     TeamMemberApplicationForm,
     TeamRoleForm,
     VoucherSettingsForm,
+    overfilled_role_error,
     render_answer_for_review,
     split_shift_range,
 )
@@ -2451,6 +2452,16 @@ class ShiftScheduleTalkAPIView(PluginActiveMixin, TeamShiftsPermissionRequiredMi
                     shift.name = title_val
             if "description" in data:
                 shift.description = data["description"]
+
+            if "roles" in data:
+                capacities = {role_data.get("id"): role_data.get("capacity", 1) for role_data in data["roles"] if role_data.get("id")}
+            elif data.get("role") and "capacity" in data:
+                capacities = {data["role"]: data["capacity"]}
+            else:
+                capacities = {}
+            capacity_error = overfilled_role_error(shift, capacities)
+            if capacity_error:
+                return JsonResponse({"detail": capacity_error}, status=400)
 
             shift.save()
 

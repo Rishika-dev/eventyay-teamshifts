@@ -3,9 +3,10 @@ from datetime import timedelta
 from zoneinfo import ZoneInfo
 
 from django import forms
+from django.db.models import Count
 from django.utils import timezone
 from django.utils.html import escape as html_escape, format_html
-from django.utils.translation import gettext_lazy as _
+from django.utils.translation import gettext_lazy as _, ngettext
 from django_countries import countries
 from django_scopes import scopes_disabled
 from django_scopes.forms import SafeModelChoiceField
@@ -619,6 +620,31 @@ MAX_SHIFTS_PER_ACTION = 50
 MIN_FINAL_SHIFT_MINUTES = 15
 
 
+def overfilled_role_error(shift, capacities):
+    """Return why new role capacities cannot be saved, or None if every role still fits its assigned volunteers.
+
+    ``capacities`` maps role IDs to the capacity they are about to get on ``shift``.
+    """
+    new_capacities = {}
+    for role_id, capacity in capacities.items():
+        try:
+            new_capacities[int(role_id)] = int(capacity)
+        except (TypeError, ValueError):
+            continue
+    if not shift.pk or not new_capacities:
+        return None
+    assigned_counts = shift.assignments.filter(role_id__in=new_capacities).order_by().values("role_id", "role__name").annotate(assigned=Count("id"))
+    for row in assigned_counts:
+        capacity = new_capacities[row["role_id"]]
+        if row["assigned"] > capacity:
+            return ngettext(
+                "%(count)d volunteer is assigned to %(role)s. Unassign volunteers before lowering its capacity to %(capacity)d.",
+                "%(count)d volunteers are assigned to %(role)s. Unassign volunteers before lowering its capacity to %(capacity)d.",
+                row["assigned"],
+            ) % {"count": row["assigned"], "role": row["role__name"], "capacity": capacity}
+    return None
+
+
 def merges_into_previous_shift(remainder):
     """Return True if the time left over after the last full shift should extend that shift.
 
@@ -764,6 +790,9 @@ class BaseShiftRoleFormSet(forms.BaseInlineFormSet):
                 if role in roles:
                     raise forms.ValidationError(_("The same role cannot be added twice on the same shift."))
                 roles.add(role)
+                error = overfilled_role_error(self.instance, {role.pk: form.cleaned_data.get("capacity")})
+                if error:
+                    form.add_error("capacity", error)
 
         if not has_role:
             raise forms.ValidationError(_("At least one role must be added to the shift."))
