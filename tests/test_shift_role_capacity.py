@@ -129,6 +129,7 @@ def test_shift_edit_form_rejects_capacity_below_assigned_volunteers(orga_client,
         kwargs={"organizer": event.organizer.slug, "event": event.slug, "pk": full_shift.pk},
     )
     data = {
+        "mode": "single",
         "name": "Morning Shift",
         "location": location.pk,
         "start_time": full_shift.start_time.strftime("%Y-%m-%dT%H:%M"),
@@ -149,3 +150,53 @@ def test_shift_edit_form_rejects_capacity_below_assigned_volunteers(orga_client,
     with scope(event=event):
         role_assignment.refresh_from_db()
         assert role_assignment.capacity == 2
+
+
+@pytest.mark.django_db
+def test_already_overfilled_shift_can_still_be_edited_via_api(orga_client, event, full_shift, team_role, location):
+    with scope(event=event):
+        full_shift.role_assignments.filter(role=team_role).update(capacity=1)
+
+    response = orga_client.patch(
+        manage_url(event, full_shift),
+        data=json.dumps(edit_payload(full_shift, location, team_role, 1)),
+        content_type="application/json",
+    )
+
+    assert response.status_code == 200
+    with scope(event=event):
+        full_shift.refresh_from_db()
+        assert full_shift.name == "Renamed Shift"
+        assert full_shift.role_assignments.get(role=team_role).capacity == 1
+
+
+@pytest.mark.django_db
+def test_already_overfilled_shift_can_still_be_edited_via_form(orga_client, event, full_shift, team_role, location):
+    with scope(event=event):
+        full_shift.role_assignments.filter(role=team_role).update(capacity=1)
+        role_assignment = full_shift.role_assignments.get(role=team_role)
+    url = reverse(
+        "plugins:teamshifts:shift_edit",
+        kwargs={"organizer": event.organizer.slug, "event": event.slug, "pk": full_shift.pk},
+    )
+    data = {
+        "mode": "single",
+        "name": "Renamed Shift",
+        "location": location.pk,
+        "start_time": full_shift.start_time.strftime("%Y-%m-%dT%H:%M"),
+        "end_time": full_shift.end_time.strftime("%Y-%m-%dT%H:%M"),
+        "roles-TOTAL_FORMS": "1",
+        "roles-INITIAL_FORMS": "1",
+        "roles-MIN_NUM_FORMS": "0",
+        "roles-MAX_NUM_FORMS": "1000",
+        "roles-0-id": role_assignment.pk,
+        "roles-0-role": team_role.pk,
+        "roles-0-capacity": "1",
+    }
+
+    response = orga_client.post(url, data)
+
+    assert response.status_code == 302
+    with scope(event=event):
+        full_shift.refresh_from_db()
+        assert full_shift.name == "Renamed Shift"

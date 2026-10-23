@@ -620,10 +620,11 @@ MAX_SHIFTS_PER_ACTION = 50
 MIN_FINAL_SHIFT_MINUTES = 15
 
 
-def overfilled_role_error(shift, capacities):
-    """Return why new role capacities cannot be saved, or None if every role still fits its assigned volunteers.
+def overfilled_role_errors(shift, capacities):
+    """Return {role_id: message} for roles whose capacity would drop below the volunteers assigned to them.
 
-    ``capacities`` maps role IDs to the capacity they are about to get on ``shift``.
+    ``capacities`` maps role IDs to the capacity they are about to get on ``shift``. A capacity that is not
+    lowered is accepted, so a shift that is already overfilled can still be edited.
     """
     new_capacities = {}
     for role_id, capacity in capacities.items():
@@ -632,17 +633,21 @@ def overfilled_role_error(shift, capacities):
         except (TypeError, ValueError):
             continue
     if not shift.pk or not new_capacities:
-        return None
+        return {}
+    saved_capacities = dict(shift.role_assignments.filter(role_id__in=new_capacities).values_list("role_id", "capacity"))
     assigned_counts = shift.assignments.filter(role_id__in=new_capacities).order_by().values("role_id", "role__name").annotate(assigned=Count("id"))
+    errors = {}
     for row in assigned_counts:
-        capacity = new_capacities[row["role_id"]]
-        if row["assigned"] > capacity:
-            return ngettext(
+        role_id = row["role_id"]
+        capacity = new_capacities[role_id]
+        saved_capacity = saved_capacities.get(role_id)
+        if row["assigned"] > capacity and (saved_capacity is None or capacity < saved_capacity):
+            errors[role_id] = ngettext(
                 "%(count)d volunteer is assigned to %(role)s. Unassign volunteers before lowering its capacity to %(capacity)d.",
                 "%(count)d volunteers are assigned to %(role)s. Unassign volunteers before lowering its capacity to %(capacity)d.",
                 row["assigned"],
             ) % {"count": row["assigned"], "role": row["role__name"], "capacity": capacity}
-    return None
+    return errors
 
 
 def merges_into_previous_shift(remainder):
@@ -781,6 +786,7 @@ class BaseShiftRoleFormSet(forms.BaseInlineFormSet):
 
         roles = set()
         has_role = False
+        role_forms = {}
         for form in self.forms:
             if self.can_delete and self._should_delete_form(form):
                 continue
@@ -790,12 +796,14 @@ class BaseShiftRoleFormSet(forms.BaseInlineFormSet):
                 if role in roles:
                     raise forms.ValidationError(_("The same role cannot be added twice on the same shift."))
                 roles.add(role)
-                error = overfilled_role_error(self.instance, {role.pk: form.cleaned_data.get("capacity")})
-                if error:
-                    form.add_error("capacity", error)
+                role_forms[role.pk] = form
 
         if not has_role:
             raise forms.ValidationError(_("At least one role must be added to the shift."))
+
+        capacities = {role_id: form.cleaned_data.get("capacity") for role_id, form in role_forms.items()}
+        for role_id, error in overfilled_role_errors(self.instance, capacities).items():
+            role_forms[role_id].add_error("capacity", error)
 
 
 class ShiftRoleAssignmentForm(forms.ModelForm):

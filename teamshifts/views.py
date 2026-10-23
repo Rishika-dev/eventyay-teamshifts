@@ -54,7 +54,7 @@ from .forms import (
     TeamMemberApplicationForm,
     TeamRoleForm,
     VoucherSettingsForm,
-    overfilled_role_error,
+    overfilled_role_errors,
     render_answer_for_review,
     split_shift_range,
 )
@@ -2419,8 +2419,9 @@ class ShiftScheduleTalkAPIView(PluginActiveMixin, TeamShiftsPermissionRequiredMi
         except (UnicodeDecodeError, json.JSONDecodeError):
             return HttpResponseBadRequest("Invalid JSON body.")
         event = request.event
-        with scope(event=event):
-            shift = get_object_or_404(Shift, pk=kwargs["pk"], event=event)
+        # Lock the shift like the assignment and claim views, so no volunteer is assigned between the capacity check and the role update.
+        with scope(event=event), transaction.atomic():
+            shift = get_object_or_404(Shift.objects.select_for_update(), pk=kwargs["pk"], event=event)
 
             if data.get("start"):
                 try:
@@ -2459,9 +2460,9 @@ class ShiftScheduleTalkAPIView(PluginActiveMixin, TeamShiftsPermissionRequiredMi
                 capacities = {data["role"]: data["capacity"]}
             else:
                 capacities = {}
-            capacity_error = overfilled_role_error(shift, capacities)
-            if capacity_error:
-                return JsonResponse({"detail": capacity_error}, status=400)
+            capacity_errors = overfilled_role_errors(shift, capacities)
+            if capacity_errors:
+                return JsonResponse({"detail": next(iter(capacity_errors.values()))}, status=400)
 
             shift.save()
 
