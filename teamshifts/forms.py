@@ -707,7 +707,7 @@ MIN_FINAL_SHIFT_MINUTES = 15
 
 
 def overfilled_role_errors(shift, capacities):
-    """Return {role_id: message} for roles whose capacity would drop below the volunteers assigned to them.
+    """Return {role_id: message} for roles whose capacity would drop below the team members assigned to them.
 
     ``capacities`` maps role IDs to the capacity they are about to get on ``shift``. A capacity that is not
     lowered is accepted, so a shift that is already overfilled can still be edited.
@@ -729,8 +729,8 @@ def overfilled_role_errors(shift, capacities):
         saved_capacity = saved_capacities.get(role_id)
         if row["assigned"] > capacity and (saved_capacity is None or capacity < saved_capacity):
             errors[role_id] = ngettext(
-                "%(count)d volunteer is assigned to %(role)s. Unassign volunteers before lowering its capacity to %(capacity)d.",
-                "%(count)d volunteers are assigned to %(role)s. Unassign volunteers before lowering its capacity to %(capacity)d.",
+                "%(count)d team member is assigned to %(role)s. Unassign team members before lowering its capacity to %(capacity)d.",
+                "%(count)d team members are assigned to %(role)s. Unassign team members before lowering its capacity to %(capacity)d.",
                 row["assigned"],
             ) % {"count": row["assigned"], "role": row["role__name"], "capacity": capacity}
     return errors

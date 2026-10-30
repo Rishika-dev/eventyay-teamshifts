@@ -2568,7 +2568,7 @@ class ShiftScheduleTalkAPIView(PluginActiveMixin, TeamShiftsPermissionRequiredMi
         except (UnicodeDecodeError, json.JSONDecodeError):
             return HttpResponseBadRequest("Invalid JSON body.")
         event = request.event
-        # Lock the shift like the assignment and claim views, so no volunteer is assigned between the capacity check and the role update.
+        # Lock the shift like the assignment and claim views, so no team member is assigned between the capacity check and the role update.
         with scope(event=event), transaction.atomic():
             shift = get_object_or_404(Shift.objects.select_for_update(), pk=kwargs["pk"], event=event)
 

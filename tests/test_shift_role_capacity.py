@@ -82,7 +82,7 @@ def test_lowering_capacity_below_assigned_volunteers_is_rejected(orga_client, ev
     )
 
     assert response.status_code == 400
-    assert response.json()["detail"] == "2 volunteers are assigned to Registration. Unassign volunteers before lowering its capacity to 1."
+    assert response.json()["detail"] == "2 team members are assigned to Registration. Unassign team members before lowering its capacity to 1."
     with scope(event=event):
         full_shift.refresh_from_db()
         assert full_shift.name == "Morning Shift"
@@ -146,7 +146,7 @@ def test_shift_edit_form_rejects_capacity_below_assigned_volunteers(orga_client,
     response = orga_client.post(url, data)
 
     assert response.status_code == 200
-    assert "2 volunteers are assigned to Registration." in response.content.decode()
+    assert "2 team members are assigned to Registration." in response.content.decode()
     with scope(event=event):
         role_assignment.refresh_from_db()
         assert role_assignment.capacity == 2
